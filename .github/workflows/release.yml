@@ -1,97 +1,50 @@
-name: Kernel Release
-
-on:
-  pull_request:
-    types: [closed]
-    branches:
-      - v*
-      - flavor/*/v*
+name: Auto release
+on: 
   workflow_dispatch:
+  push:
 
 jobs:
   build:
-    name: Build (${{ matrix.debian }})
-    runs-on: [self-hosted, '${{ matrix.debian }}']
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
-    strategy:
-      matrix:
-        debian: [buster, bullseye]
-        include:
-          - build_profile: 'generic'
-            build_cc: gcc
-            build_cflags: ''
-    steps:
-    - name: Clean Workspace
-      run: rm -rf *.deb *.ddeb *.build *.buildinfo *.changes
-    - name: Checkout Sources
-      uses: actions/checkout@v2
-      with:
-          submodules: recursive
-          path: pve-edge-kernel
-    - name: Clean Repository
-      run: git -C pve-edge-kernel submodule foreach git clean -ffdx
-    - name: Build Kernel
-      run: |
-        cd pve-edge-kernel
-        debian/rules debian/control
-        if [ "$PVE_BUILD_PROFILE" != "generic" ]; then
-        	debchange -l +$PVE_BUILD_PROFILE -D edge --force-distribution -U -M "Specialization for $PVE_BUILD_PROFILE"
-        fi
-        debuild --no-lintian -e PVE* -e CCACHE_DIR=/var/cache/ccache --prepend-path=/usr/lib/ccache --jobs=auto -b -uc -us
-      env:
-          PVE_BUILD_PROFILE: ${{ matrix.build_profile }}
-          PVE_KERNEL_CC: ${{ matrix.build_cc }}
-          PVE_KERNEL_CFLAGS: ${{ matrix.build_cflags }}
-          PVE_ZFS_CC: ${{ matrix.build_cc }}
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v2
-      with:
-        name: ${{ matrix.debian }}-${{ matrix.build_profile }}
-        path: "*.deb"
-  publish:
-    name: Publish
+    name: Build
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
-    needs: build
     steps:
-    - name: Checkout Sources
-      uses: actions/checkout@v2
-      with:
-        submodules: recursive
-    - name: Download Artifacts
-      uses: actions/download-artifact@v2
-      with:
-          path: artifacts
-    - name: Delete Debug Symbols
-      run: rm -f artifacts/*/*dbgsym*.deb
-    - name: Format Release Name
-      id: format_release
-      run: |
-        release=$(scripts/version.sh)
-        echo "::set-output name=release::$release"
-        changelog=$(dpkg-parsechangelog -c 1 -l debian/changelog)
-        changelog="${changelog//'%'/'%25'}"
-        changelog="${changelog//$'\n'/'%0A'}"
-        changelog="${changelog//$'\r'/'%0D'}"
-        echo "::set-output name=changelog::$changelog"
-    - name: Create Release
-      uses: ncipollo/release-action@v1
-      with:
-        commit: ${{ github.sha }}
-        tag: v${{ steps.format_release.outputs.release }}
-        body: ${{ steps.format_release.outputs.changelog }}
-        token: ${{ secrets.PAT }}
-        artifacts: "artifacts/buster-generic/pve-headers-*.deb,artifacts/buster-generic/pve-kernel-*.deb,artifacts/buster-generic/linux-tools-*.deb"
-    - name: Release to CloudSmith
-      run: |
-        pip install --upgrade cloudsmith-cli
-        find artifacts/buster-generic \
-          -name '*.deb' \
-          -not -name "*dbgsym*" \
-          -exec cloudsmith push deb pve-edge/kernel/debian/buster {} --republish \;
-        find artifacts/bullseye-generic \
-             -name '*.deb' \
-             -not -name "*dbgsym*" \
-             -exec cloudsmith push deb pve-edge/kernel/debian/bullseye {} --republish \;
-      env:
-        CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+      - name: Initialization environment
+        run: |
+          # sudo curl -L -o /etc/apt/trusted.gpg.d/proxmox-release-bullseye.gpg http://download.proxmox.com/debian/proxmox-release-bullseye.gpg
+          # sudo chmod +r /etc/apt/trusted.gpg.d/proxmox-release-bullseye.gpg
+          # sudo chmod a+w /etc/apt/sources.list
+          # sudo echo "deb http://download.proxmox.com/debian/pve bullseye pve-no-subscription" >>/etc/apt/sources.list
+
+          sudo apt-get update
+          sudo apt-get install devscripts debhelper equivs git dwarves
+          sudo apt-get autoremove --purge
+          sudo apt-get clean
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+            submodules: recursive
+            path: pve-edge-kernel
+
+      - name: Build
+        run: |
+          cd pve-edge-kernel
+          debian/rules debian/control
+          sudo mk-build-deps -i
+          debuild --jobs=auto -b -uc -us
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2-preview
+        with:
+          path: "*.deb"
+
+      - name: Release
+        run: |
+          cd pve-edge-kernel
+          time="${{ github.event.head_commit.timestamp }}"
+          sha="${GITHUB_SHA:0:8}"
+          tag="ci-$(date +'%Y%m%d-%H%M' -d "$time")"
+          message="Auto-Release $(date +'%Y-%m-%d %H:%M' -d "$time")"
+          hub release create $(for a in ../*.deb; do echo -a $a; done) -t "$GITHUB_SHA" "$tag" -m "$message"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
