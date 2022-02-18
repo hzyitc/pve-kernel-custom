@@ -8,6 +8,32 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk
+        run: |
+          echo "::group::Show disk usage"
+          sudo df -h
+          echo "::endgroup::"
+
+          echo "::group::Uninstall packages"
+          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel
+          sudo apt-get autoremove --purge -y
+          sudo apt-get clean
+          echo "::endgroup::"
+
+          echo "::group::Show disk usage"
+          sudo df -h
+          echo "::endgroup::"
+
+          echo "::group::Delete .net, android and ghc"
+          sudo rm -rf /usr/share/dotnet/
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          echo "::endgroup::"
+
+          echo "::group::Show disk usage"
+          sudo df -h
+          echo "::endgroup::"
+
       - name: Initialization environment
         run: |
           # sudo curl -L -o /etc/apt/trusted.gpg.d/proxmox-release-bullseye.gpg http://download.proxmox.com/debian/proxmox-release-bullseye.gpg
@@ -30,8 +56,18 @@ jobs:
         run: |
           cd pve-edge-kernel
           debian/rules debian/control
+
+          echo "::group::Install build-depends"
           sudo mk-build-deps -i
+          echo "::endgroup::"
+
+          echo "::group::Build"
           debuild --jobs=auto -b -uc -us
+          echo "::endgroup::"
+
+      - name: Show disk usage
+        run: |
+          sudo df -h
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2-preview
