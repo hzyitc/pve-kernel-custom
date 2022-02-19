@@ -1,3 +1,8 @@
+ubuntu/0001-apparmor-compatibility-v2.x-net-rules.patch
+ubuntu/0002-apparmor-af_unix-mediation.patch
+ubuntu/0003-apparmor-fix-apparmor-mediating-locking-non-fs-unix-sockets.patch
+ubuntu/0004-apparmor-fix-use-after-free-in-sk_peer_label.patch
+
 pve/0001-Make-mkcompile_h-accept-an-alternate-timestamp-strin.patch
 pve/0002-bridge-keep-MAC-of-first-assigned-port.patch
 pve/0003-pci-Enable-overrides-for-missing-ACS-capabilities-4..patch
